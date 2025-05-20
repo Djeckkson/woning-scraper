@@ -1,16 +1,12 @@
+import os
 import requests
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# 🔐 Jouw Apify API-token (niet delen met anderen!)
-APIFY_TOKEN = "apify_api_g9OHpMqQfiMJZaRlPRR8Scrs8VvCZ3EJEkLC"
-
-# 🏙️ Steden die je wilt scrapen
-STEDEN = ["Amsterdam", "Deventer", "Rotterdam", "Utrecht"]
-
-# 🔧 Funda Actor ID (voor de gekozen scraper)
-ACTOR_ID = "memo23/apify-funda-cheerio-kvstore"
+# ✅ Lees tokens uit de Environment Variables van Render
+APIFY_TOKEN = os.getenv("APIFY_API_TOKEN")
+ACTOR_ID = os.getenv("APIFY_ACTOR_ID")
 
 @app.route('/')
 def home():
@@ -18,9 +14,11 @@ def home():
 
 @app.route('/webhook', methods=['POST'])
 def run_scraper():
+    data = request.get_json()
+    steden = data.get("steden", [])
     all_runs = []
 
-    for stad in STEDEN:
+    for stad in steden:
         payload = {
             "city": stad,
             "maxConcurrency": 5,
