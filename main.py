@@ -4,9 +4,9 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# ✅ Lees tokens uit de Environment Variables van Render
-APIFY_TOKEN = os.getenv("APIFY_API_TOKEN")
-ACTOR_ID = os.getenv("APIFY_ACTOR_ID")
+# Haal API-token en Actor ID veilig uit environment variables
+APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN")
+APIFY_ACTOR_ID = os.getenv("APIFY_ACTOR_ID")
 
 @app.route('/')
 def home():
@@ -15,7 +15,11 @@ def home():
 @app.route('/webhook', methods=['POST'])
 def run_scraper():
     data = request.get_json()
-    steden = data.get("steden", [])
+    steden = data.get("steden")
+
+    if not steden or not isinstance(steden, list):
+        return jsonify({"error": "Ongeldige input. Stuur een JSON-body met 'steden': [..]"}), 400
+
     all_runs = []
 
     for stad in steden:
@@ -33,7 +37,7 @@ def run_scraper():
         print(f"▶️ Start scraping voor: {stad}")
 
         response = requests.post(
-            f"https://api.apify.com/v2/actor-tasks/{ACTOR_ID}/runs?token={APIFY_TOKEN}",
+            f"https://api.apify.com/v2/actor-tasks/{APIFY_ACTOR_ID}/runs?token={APIFY_API_TOKEN}",
             json=payload,
             headers={"Content-Type": "application/json"}
         )
