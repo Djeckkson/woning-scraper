@@ -6,18 +6,18 @@ app = Flask(__name__)
 
 # 🔐 Haal tokens op uit environment variables
 APIFY_TOKEN = os.getenv("APIFY_API_TOKEN")
-TASK_ID = "djeckkson/funda-task"  # Jouw task-ID
+ACTOR_ID = os.getenv("APIFY_ACTOR_ID")  # Bijvoorbeeld: djeckkson~funda-task
 
 @app.route('/')
 def home():
-    return "✅ Scraper draait! POST naar /webhook met stedenlijst om te starten."
+    return "✅ Scraper draait! POST naar /webhook om data te scrapen."
 
 @app.route('/webhook', methods=['POST'])
 def run_scraper():
     data = request.get_json()
 
     if not data or "steden" not in data:
-        return jsonify({"error": "❌ Geen steden opgegeven. Stuur JSON zoals {'steden': ['Amsterdam', 'Utrecht']}"}), 400
+        return jsonify({"error": "❌ Geen steden opgegeven. Stuur een JSON-body met 'steden': ['...']."}), 400
 
     steden = data["steden"]
     all_runs = []
@@ -25,9 +25,9 @@ def run_scraper():
     for stad in steden:
         payload = {
             "city": stad,
-            "maxConcurrency": 10,
-            "minConcurrency": 5,
-            "maxRequestRetries": 10,
+            "maxConcurrency": 5,
+            "minConcurrency": 1,
+            "maxRequestRetries": 5,
             "proxy": {
                 "useApifyProxy": True,
                 "apifyProxyGroups": ["RESIDENTIAL"]
@@ -37,7 +37,7 @@ def run_scraper():
         print(f"▶️ Start scraping voor: {stad}")
 
         response = requests.post(
-            f"https://api.apify.com/v2/actor-tasks/{TASK_ID}/runs?token={APIFY_TOKEN}",
+            f"https://api.apify.com/v2/actor-tasks/{ACTOR_ID}/runs?token={APIFY_TOKEN}",
             json=payload,
             headers={"Content-Type": "application/json"}
         )
@@ -48,9 +48,9 @@ def run_scraper():
             print(f"✅ Scraper gestart voor: {stad}")
         else:
             print(f"❌ Scraper mislukt voor: {stad}")
-            print(response.text)
+            print("Details:", response.text)
             return jsonify({
-                "error": f"Scraper mislukt voor {stad}",
+                "error": f"❌ Scraper mislukt voor {stad}",
                 "details": response.text
             }), 500
 
