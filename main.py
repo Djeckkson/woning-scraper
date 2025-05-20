@@ -4,22 +4,22 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Haal API-token en Actor ID veilig uit environment variables
-APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN")
-APIFY_ACTOR_ID = os.getenv("APIFY_ACTOR_ID")
+# 🔐 Haal tokens op uit environment variables
+APIFY_TOKEN = os.getenv("APIFY_API_TOKEN")
+ACTOR_ID = os.getenv("APIFY_ACTOR_ID")
 
 @app.route('/')
 def home():
-    return "✅ Scraper draait! POST naar /webhook om data toe te voegen."
+    return "✅ Scraper draait! POST naar /webhook om data te scrapen."
 
 @app.route('/webhook', methods=['POST'])
 def run_scraper():
     data = request.get_json()
-    steden = data.get("steden")
-
-    if not steden or not isinstance(steden, list):
-        return jsonify({"error": "Ongeldige input. Stuur een JSON-body met 'steden': [..]"}), 400
-
+    
+    if not data or "steden" not in data:
+        return jsonify({"error": "❌ Geen steden opgegeven. Stuur een JSON-body met 'steden': ['...']."}), 400
+    
+    steden = data["steden"]
     all_runs = []
 
     for stad in steden:
@@ -37,7 +37,7 @@ def run_scraper():
         print(f"▶️ Start scraping voor: {stad}")
 
         response = requests.post(
-            f"https://api.apify.com/v2/actor-tasks/{APIFY_ACTOR_ID}/runs?token={APIFY_API_TOKEN}",
+            f"https://api.apify.com/v2/actor-tasks/{ACTOR_ID}/runs?token={APIFY_TOKEN}",
             json=payload,
             headers={"Content-Type": "application/json"}
         )
@@ -47,7 +47,7 @@ def run_scraper():
             all_runs.append({stad: run_info})
             print(f"✅ Scraper gestart voor: {stad}")
         else:
-            print(f"❌ Fout bij starten scraper voor: {stad}")
+            print(f"❌ Scraper mislukt voor: {stad}")
             print(response.text)
             return jsonify({"error": f"Scraper mislukt voor {stad}"}), 500
 
