@@ -15,10 +15,10 @@ def home():
 @app.route('/webhook', methods=['POST'])
 def run_scraper():
     data = request.get_json()
-
+    
     if not data or "steden" not in data:
         return jsonify({"error": "❌ Geen steden opgegeven. Stuur een JSON-body met 'steden': ['...']."}), 400
-
+    
     steden = data["steden"]
     all_runs = []
 
