@@ -2,3 +2,4 @@ supabase
 pandas
 flask
 requests
+flask-cors
