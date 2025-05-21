@@ -1,25 +1,28 @@
 import os
 import requests
-import json
 from flask import Flask, request, jsonify
-from datetime import datetime
 
 app = Flask(__name__)
 
-# Tokens via environment
+# 🔐 Omgevingsvariabelen
 APIFY_TOKEN = os.getenv("APIFY_API_TOKEN")
 ACTOR_ID = os.getenv("APIFY_ACTOR_ID")
+SECRET_API_KEY = os.getenv("MY_SECRET_API_KEY")  # <- verwachte waarde: 'Maluku123'
 
-@app.route('/')
+@app.route("/")
 def home():
-    return "✅ Scraper draait! POST naar /webhook om data te scrapen."
+    return "✅ Scraper draait. POST naar /webhook om data te scrapen."
 
-@app.route('/webhook', methods=['POST'])
+@app.route("/webhook", methods=["POST"])
 def run_scraper():
-    data = request.get_json()
+    # ✅ Beveiliging: check of de juiste API-key is meegegeven in headers
+    client_key = request.headers.get("x-api-key")
+    if client_key != SECRET_API_KEY:
+        return jsonify({"error": "⛔️ Ongeldige API key"}), 403
 
+    data = request.get_json()
     if not data or "steden" not in data:
-        return jsonify({"error": "❌ Geen steden opgegeven. Stuur een JSON-body met 'steden': ['...']."}), 400
+        return jsonify({"error": "❌ Geen steden opgegeven. Gebruik JSON-body met 'steden': ['...']."}), 400
 
     steden = data["steden"]
     all_runs = []
@@ -27,8 +30,8 @@ def run_scraper():
     for stad in steden:
         payload = {
             "city": stad,
-            "maxConcurrency": 10,
-            "minConcurrency": 5,
+            "maxConcurrency": 5,
+            "minConcurrency": 1,
             "maxRequestRetries": 5,
             "proxy": {
                 "useApifyProxy": True,
@@ -36,6 +39,7 @@ def run_scraper():
             }
         }
 
+        print(f"▶️ Start scraping voor: {stad}")
         response = requests.post(
             f"https://api.apify.com/v2/actor-tasks/{ACTOR_ID}/runs?token={APIFY_TOKEN}",
             json=payload,
@@ -45,17 +49,10 @@ def run_scraper():
         if response.status_code == 201:
             run_info = response.json()
             all_runs.append({stad: run_info})
-
-            # 📝 Resultaat lokaal opslaan
-            os.makedirs("data", exist_ok=True)
-            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            filename = f"data/scraper_{stad}_{timestamp}.json"
-            with open(filename, "w") as f:
-                json.dump(run_info, f, indent=2)
-
-            print(f"✅ Data opgeslagen voor {stad} in {filename}")
+            print(f"✅ Scraper gestart voor: {stad}")
         else:
-            print(f"❌ Scraper mislukt voor {stad}")
+            print(f"❌ Scraper mislukt voor: {stad}")
+            print(response.text)
             return jsonify({
                 "error": f"Scraper mislukt voor {stad}",
                 "details": response.text
