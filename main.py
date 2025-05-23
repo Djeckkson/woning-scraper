@@ -50,19 +50,39 @@ def run_scraper():
             "minPublishDate": vandaag,
         }
 
-        response = requests.post(
+        # Start de actor-run
+        run_response = requests.post(
             f"https://api.apify.com/v2/actor-tasks/{ACTOR_ID}/runs?token={APIFY_TOKEN}",
             json=payload,
             headers={"Content-Type": "application/json"},
         )
 
-        if response.status_code != 201:
+        if run_response.status_code != 201:
             return jsonify({
                 "error": f"❌ Scraper mislukt voor {stad}",
-                "details": response.text,
+                "details": run_response.text,
             }), 500
 
-        run_data = response.json()["data"]
+        run_data = run_response.json()["data"]
+        run_id = run_data["id"]
+
+        # ⏳ Poll de run-status tot hij is afgerond
+        print(f"🔍 Wachten tot actor klaar is voor stad: {stad}")
+        run_status = "RUNNING"
+        max_attempts = 20
+        while run_status not in ("SUCCEEDED", "FAILED") and max_attempts > 0:
+            time.sleep(5)
+            status_response = requests.get(
+                f"https://api.apify.com/v2/actor-runs/{run_id}?token={APIFY_TOKEN}"
+            )
+            run_status = status_response.json()["data"]["status"]
+            print(f"⏱️ Status: {run_status}")
+            max_attempts -= 1
+
+        if run_status != "SUCCEEDED":
+            return jsonify({"error": f"❌ Run is mislukt of niet voltooid voor {stad}"}), 500
+
+        # 📦 Haal dataset op
         dataset_id = run_data["defaultDatasetId"]
         dataset_url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?clean=true&format=json"
 
@@ -70,8 +90,8 @@ def run_scraper():
         for attempt in range(5):
             try:
                 print(f"🔄 Poging {attempt + 1} om dataset op te halen...")
-                response = requests.get(dataset_url)
-                woningen = response.json()
+                dataset_response = requests.get(dataset_url)
+                woningen = dataset_response.json()
                 if woningen:
                     break
                 time.sleep(5)
