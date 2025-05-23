@@ -2,10 +2,9 @@ import os
 import requests
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from datetime import datetime, timedelta
+from datetime import datetime
 from supabase import create_client, Client
 
-# 🔐 Omgevingsvariabelen
 APIFY_TOKEN = os.getenv("APIFY_API_TOKEN")
 ACTOR_ID = os.getenv("APIFY_ACTOR_ID")
 SECRET_API_KEY = os.getenv("MY_SECRET_API_KEY")
@@ -23,7 +22,6 @@ def home():
 
 @app.route("/webhook", methods=["POST"])
 def run_scraper():
-    # ✅ Beveiliging
     client_key = request.headers.get("x-api-key")
     if client_key != SECRET_API_KEY:
         return jsonify({"error": "⛔️ Ongeldige API key"}), 403
@@ -38,7 +36,6 @@ def run_scraper():
 
     all_runs = []
     vandaag = datetime.today().strftime("%Y-%m-%d")
-    gisteren = (datetime.today() - timedelta(days=1)).strftime("%Y-%m-%d")
 
     for stad in steden:
         payload = {
@@ -48,10 +45,8 @@ def run_scraper():
             "propertyTypes": ["Woonhuis", "Appartement"],
             "maxResults": 100,
             "radiusKm": 5,
-            "minPublishDate": gisteren,  # 🔧 i.p.v. vandaag om tijdzone problemen te voorkomen
+            "minPublishDate": vandaag,
         }
-
-        print(f"\n▶️ Scrapen gestart voor: {stad} met payload: {payload}")
 
         response = requests.post(
             f"https://api.apify.com/v2/actor-tasks/{ACTOR_ID}/runs?token={APIFY_TOKEN}",
@@ -65,52 +60,47 @@ def run_scraper():
                 "details": response.text,
             }), 500
 
-        run_data = response.json()["data"]
-        dataset_id = run_data["defaultDatasetId"]
+        dataset_id = response.json()["data"]["defaultDatasetId"]
         dataset_url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?clean=true&format=json"
-        print(f"⬇️ Dataset ophalen van: {dataset_url}")
 
         try:
             dataset_response = requests.get(dataset_url)
-            woningen = dataset_response.json()
+            data = dataset_response.json()
         except Exception as e:
             return jsonify({"error": f"❌ Fout bij ophalen dataset: {str(e)}"}), 500
 
-        print(f"🔍 Aantal ruwe resultaten voor {stad}: {len(woningen)}")
-        for w in woningen[:3]:
-            print(f"🔎 Voorbeeld: dateAdded={w.get('dateAdded')}, type={w.get('propertyType')}, id={w.get('externalId')}")
-
         unieke_woningen = []
 
-        for w in woningen:
-            if (
-                w.get("price") is not None and
-                w.get("externalId") is not None and
-                w.get("propertyType") in ["Woonhuis", "Appartement"]
-                and w.get("dateAdded", "") >= gisteren
-            ):
-                nieuwe = {
-                    "externalId": w["externalId"],
-                    "price": w["price"],
-                    "propertyType": w.get("propertyType", ""),
-                    "offerType": w.get("offerType", ""),
-                    "dateAdded": w.get("dateAdded", ""),
-                    "livingArea": w.get("livingArea", 0),
-                    "stad": stad,
-                    "scrape_date": vandaag,
-                    "adres": w.get("adres", ""),
-                    "woz_gemiddeld": w.get("wozWaardeGemiddeld"),
-                    "uitbouw_mogelijk": w.get("uitbouwMogelijk"),
-                    "vergunning_nodig": w.get("vergunningNodig"),
-                }
-                unieke_woningen.append(nieuwe)
+        for item in data:
+            s = item.get("search_item", {}).get("_source", {})
+            address = s.get("address", {})
+            price = s.get("price", {}).get("selling_price", [None])[0]
+            woonopp = s.get("floor_area", [0])[0]
+            publish_date = s.get("publish_date", "")[:10]
 
-        print(f"✅ {len(unieke_woningen)} woningen gefilterd voor {stad}")
+            if not price or not publish_date:
+                continue
+
+            nieuwe = {
+                "externalId": str(item.get("_id", "")),
+                "price": price,
+                "propertyType": "Appartement" if s.get("object_type") == "apartment" else "Woonhuis",
+                "offerType": "Koop",
+                "dateAdded": publish_date,
+                "livingArea": woonopp,
+                "stad": stad,
+                "scrape_date": vandaag,
+                "adres": f'{address.get("street_name", "")} {address.get("house_number", "")}, {address.get("postal_code", "")}',
+                "woz_gemiddeld": None,
+                "uitbouw_mogelijk": None,
+                "vergunning_nodig": None,
+            }
+
+            unieke_woningen.append(nieuwe)
 
         if unieke_woningen:
             try:
                 supabase.table("woningen").upsert(unieke_woningen, on_conflict="externalId").execute()
-                print(f"📥 {len(unieke_woningen)} woningen opgeslagen in Supabase voor {stad}")
             except Exception as e:
                 return jsonify({"error": f"❌ Fout bij opslaan in Supabase: {str(e)}"}), 500
 
