@@ -1,10 +1,8 @@
 import os
 import requests
-import time
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from datetime import datetime
-from dateutil.parser import parse as parse_date
+from datetime import datetime, timedelta
 from supabase import create_client, Client
 
 # 🔐 Omgevingsvariabelen
@@ -39,7 +37,8 @@ def run_scraper():
         return jsonify({"error": "❌ 'steden' moet een lijst van strings zijn."}), 400
 
     all_runs = []
-    vandaag = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
+    vandaag = datetime.today().strftime("%Y-%m-%d")
+    gisteren = (datetime.today() - timedelta(days=1)).strftime("%Y-%m-%d")
 
     for stad in steden:
         payload = {
@@ -49,10 +48,10 @@ def run_scraper():
             "propertyTypes": ["Woonhuis", "Appartement"],
             "maxResults": 100,
             "radiusKm": 5,
-            "minPublishDate": vandaag.strftime("%Y-%m-%d"),
+            "minPublishDate": gisteren,  # 🔧 i.p.v. vandaag om tijdzone problemen te voorkomen
         }
 
-        print(f"▶️ Scrapen gestart voor: {stad} met payload: {payload}")
+        print(f"\n▶️ Scrapen gestart voor: {stad} met payload: {payload}")
 
         response = requests.post(
             f"https://api.apify.com/v2/actor-tasks/{ACTOR_ID}/runs?token={APIFY_TOKEN}",
@@ -71,45 +70,42 @@ def run_scraper():
         dataset_url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?clean=true&format=json"
         print(f"⬇️ Dataset ophalen van: {dataset_url}")
 
-        woningen = []
-        for poging in range(5):
-            try:
-                dataset_response = requests.get(dataset_url)
-                woningen = dataset_response.json()
-                if isinstance(woningen, list) and len(woningen) > 0:
-                    break
-            except Exception as e:
-                print(f"⏳ Wachten op dataset... poging {poging+1}")
-                time.sleep(3)
+        try:
+            dataset_response = requests.get(dataset_url)
+            woningen = dataset_response.json()
+        except Exception as e:
+            return jsonify({"error": f"❌ Fout bij ophalen dataset: {str(e)}"}), 500
+
+        print(f"🔍 Aantal ruwe resultaten voor {stad}: {len(woningen)}")
+        for w in woningen[:3]:
+            print(f"🔎 Voorbeeld: dateAdded={w.get('dateAdded')}, type={w.get('propertyType')}, id={w.get('externalId')}")
 
         unieke_woningen = []
-        for w in woningen:
-            try:
-                if (
-                    w.get("price") is not None
-                    and w.get("externalId") is not None
-                    and w.get("propertyType") in ["Woonhuis", "Appartement"]
-                    and parse_date(w.get("dateAdded", "")) >= vandaag
-                ):
-                    nieuwe = {
-                        "externalId": w["externalId"],
-                        "price": w["price"],
-                        "propertyType": w.get("propertyType", ""),
-                        "offerType": w.get("offerType", ""),
-                        "dateAdded": w.get("dateAdded", ""),
-                        "livingArea": w.get("livingArea", 0),
-                        "stad": stad,
-                        "scrape_date": vandaag.strftime("%Y-%m-%d"),
-                        "adres": w.get("adres", ""),
-                        "woz_gemiddeld": w.get("wozWaardeGemiddeld"),
-                        "uitbouw_mogelijk": w.get("uitbouwMogelijk"),
-                        "vergunning_nodig": w.get("vergunningNodig"),
-                    }
-                    unieke_woningen.append(nieuwe)
-            except Exception as e:
-                print(f"⚠️ Skipped woning vanwege parse-fout: {e}")
 
-        print(f"✅ {len(unieke_woningen)} woningen gevonden voor {stad}")
+        for w in woningen:
+            if (
+                w.get("price") is not None and
+                w.get("externalId") is not None and
+                w.get("propertyType") in ["Woonhuis", "Appartement"]
+                and w.get("dateAdded", "") >= gisteren
+            ):
+                nieuwe = {
+                    "externalId": w["externalId"],
+                    "price": w["price"],
+                    "propertyType": w.get("propertyType", ""),
+                    "offerType": w.get("offerType", ""),
+                    "dateAdded": w.get("dateAdded", ""),
+                    "livingArea": w.get("livingArea", 0),
+                    "stad": stad,
+                    "scrape_date": vandaag,
+                    "adres": w.get("adres", ""),
+                    "woz_gemiddeld": w.get("wozWaardeGemiddeld"),
+                    "uitbouw_mogelijk": w.get("uitbouwMogelijk"),
+                    "vergunning_nodig": w.get("vergunningNodig"),
+                }
+                unieke_woningen.append(nieuwe)
+
+        print(f"✅ {len(unieke_woningen)} woningen gefilterd voor {stad}")
 
         if unieke_woningen:
             try:
