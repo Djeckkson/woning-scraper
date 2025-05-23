@@ -37,6 +37,8 @@ def run_scraper():
         return jsonify({"error": "❌ 'steden' moet een lijst van strings zijn."}), 400
 
     all_runs = []
+    vandaag = datetime.today().strftime("%Y-%m-%d")
+
     for stad in steden:
         payload = {
             "city": stad,
@@ -45,10 +47,10 @@ def run_scraper():
             "propertyTypes": ["Woonhuis", "Appartement"],
             "maxResults": 100,
             "radiusKm": 5,
-            "minPublishDate": datetime.today().strftime("%Y-%m-%d"),
+            "minPublishDate": vandaag,
         }
 
-        print("▶️ Payload:", payload)
+        print(f"▶️ Scrapen gestart voor: {stad} met payload: {payload}")
 
         response = requests.post(
             f"https://api.apify.com/v2/actor-tasks/{ACTOR_ID}/runs?token={APIFY_TOKEN}",
@@ -63,21 +65,17 @@ def run_scraper():
             }), 500
 
         run_data = response.json()["data"]
-        run_id = run_data["id"]
         dataset_id = run_data["defaultDatasetId"]
-
         dataset_url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?clean=true&format=json"
         print(f"⬇️ Dataset ophalen van: {dataset_url}")
 
-        # Wacht even totdat dataset klaar is (optioneel: retry logic)
         try:
-            items_response = requests.get(dataset_url)
-            woningen = items_response.json()
+            dataset_response = requests.get(dataset_url)
+            woningen = dataset_response.json()
         except Exception as e:
-            return jsonify({"error": f"❌ Fout bij ophalen dataset: {e}"}), 500
+            return jsonify({"error": f"❌ Fout bij ophalen dataset: {str(e)}"}), 500
 
         unieke_woningen = []
-        vandaag = datetime.today().strftime("%Y-%m-%d")
 
         for w in woningen:
             if (
@@ -102,8 +100,14 @@ def run_scraper():
                 }
                 unieke_woningen.append(nieuwe)
 
+        print(f"✅ {len(unieke_woningen)} woningen gevonden voor {stad}")
+
         if unieke_woningen:
-            supabase.table("woningen").upsert(unieke_woningen, on_conflict="externalId").execute()
+            try:
+                supabase.table("woningen").upsert(unieke_woningen, on_conflict="externalId").execute()
+                print(f"📥 {len(unieke_woningen)} woningen opgeslagen in Supabase voor {stad}")
+            except Exception as e:
+                return jsonify({"error": f"❌ Fout bij opslaan in Supabase: {str(e)}"}), 500
 
         all_runs.append({"stad": stad, "totaal": len(unieke_woningen)})
 
@@ -114,8 +118,6 @@ def run_scraper():
         "runs": all_runs
     }), 200
 
-
-# 🔁 Start de app voor Render (poortbinding)
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
