@@ -1,10 +1,12 @@
 import os
+import time
 import requests
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from datetime import datetime
 from supabase import create_client, Client
 
+# 🔐 Omgevingsvariabelen
 APIFY_TOKEN = os.getenv("APIFY_API_TOKEN")
 ACTOR_ID = os.getenv("APIFY_ACTOR_ID")
 SECRET_API_KEY = os.getenv("MY_SECRET_API_KEY")
@@ -60,18 +62,26 @@ def run_scraper():
                 "details": response.text,
             }), 500
 
-        dataset_id = response.json()["data"]["defaultDatasetId"]
+        run_data = response.json()["data"]
+        dataset_id = run_data["defaultDatasetId"]
         dataset_url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?clean=true&format=json"
 
-        try:
-            dataset_response = requests.get(dataset_url)
-            data = dataset_response.json()
-        except Exception as e:
-            return jsonify({"error": f"❌ Fout bij ophalen dataset: {str(e)}"}), 500
+        woningen = []
+        for attempt in range(5):
+            try:
+                print(f"🔄 Poging {attempt + 1} om dataset op te halen...")
+                response = requests.get(dataset_url)
+                woningen = response.json()
+                if woningen:
+                    break
+                time.sleep(5)
+            except Exception as e:
+                print(f"⚠️ Fout bij ophalen dataset: {e}")
+                time.sleep(5)
 
         unieke_woningen = []
 
-        for item in data:
+        for item in woningen:
             s = item.get("search_item", {}).get("_source", {})
             address = s.get("address", {})
             price = s.get("price", {}).get("selling_price", [None])[0]
