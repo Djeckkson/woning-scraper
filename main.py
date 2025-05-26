@@ -1,46 +1,61 @@
+# main.py
+
+import os
+import json
 from flask import Flask, request, jsonify
 import requests
-import time
-import os
 
 app = Flask(__name__)
 
-# Apify configuratie
-APIFY_TOKEN = "apify_api_g9OHpMqOfiMJZaRIPRR0Scrs8VvCZ3EJekLC"
-ACTOR_ID = "djeckxson~funda-task"
-BASE_URL = "https://api.apify.com/v2/actor-tasks"
+APIFY_ACTOR_ID = "djdeckson~funda-task"
+APIFY_TOKEN = "apify_api_g9OHpMq0fIMJZaRIPRR0Scrs8VzCZe3JEkLC"
 
-@app.route('/')
-def home():
-    return "✅ De woning scraper is live!"
+def run_apify_task(stad):
+    url = f"https://api.apify.com/v2/actor-tasks/{APIFY_ACTOR_ID}/runs?token={APIFY_TOKEN}"
+    payload = {
+        "startUrls": [
+            {
+                "url": f"https://www.funda.nl/koop/{stad}/0-1000000/"
+            }
+        ]
+    }
+
+    response = requests.post(url, json=payload)
+    if response.status_code != 201:
+        print(f"❌ Apify run failed: {response.text}")
+        return []
+
+    run_id = response.json()["data"]["id"]
+
+    # Wacht op voltooien
+    status = "RUNNING"
+    while status in ["RUNNING", "READY"]:
+        check = requests.get(
+            f"https://api.apify.com/v2/actor-runs/{run_id}?token={APIFY_TOKEN}"
+        ).json()
+        status = check["data"]["status"]
+
+    # Haal dataset items op
+    dataset_id = check["data"]["defaultDatasetId"]
+    items_response = requests.get(
+        f"https://api.apify.com/v2/datasets/{dataset_id}/items?token={APIFY_TOKEN}"
+    )
+
+    if items_response.status_code != 200:
+        print(f"❌ Failed to get dataset: {items_response.text}")
+        return []
+
+    return items_response.json()
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.get_json()
-    steden = data.get("steden", [])
-    results = []
-
-    print(f"🚀 Webhook ontvangen voor steden: {steden}")
+    steden = data.get('steden', [])
+    output = []
 
     for stad in steden:
-        print(f"📦 Start scraping voor: {stad}")
-
-        # Start de Apify actor taak
-        run_url = f"{BASE_URL}/{ACTOR_ID}/run-sync-get-dataset-items?token={APIFY_TOKEN}"
-        payload = {
-            "zoekterm": stad
-        }
-
-        response = requests.post(run_url, json=payload)
-        if response.status_code != 200:
-            print(f"❌ Error bij ophalen van {stad}: {response.text}")
-            results.append({"stad": stad, "totaal": 0})
-            continue
-
-        woningen = response.json()
-        print(f"✅ Ontvangen woningen voor {stad}: {len(woningen)} items")
-
-        results.append({
+        woningen = run_apify_task(stad)
+        output.append({
             "stad": stad,
             "totaal": len(woningen),
             "woningen": woningen
@@ -48,9 +63,10 @@ def webhook():
 
     return jsonify({
         "status": "✅ Flip-woningen succesvol verwerkt",
-        "runs": results,
-        "totaal": sum(r["totaal"] for r in results)
+        "totaal": sum([len(x["woningen"]) for x in output]),
+        "runs": output
     })
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
