@@ -6,7 +6,6 @@ from flask_cors import CORS
 from datetime import datetime, timedelta
 from supabase import create_client, Client
 
-# 🔐 Omgevingsvariabelen
 APIFY_TOKEN = os.getenv("APIFY_API_TOKEN")
 ACTOR_ID = os.getenv("APIFY_ACTOR_ID")
 SECRET_API_KEY = os.getenv("MY_SECRET_API_KEY")
@@ -37,10 +36,10 @@ def run_scraper():
         return jsonify({"error": "❌ 'steden' moet een lijst van strings zijn."}), 400
 
     all_runs = []
-    vandaag = datetime.today().strftime("%Y-%m-%d")
-    zeven_dagen_geleden = (datetime.today() - timedelta(days=7)).strftime("%Y-%m-%d")
+    vandaag = (datetime.today() - timedelta(days=7)).strftime("%Y-%m-%d")
 
     for stad in steden:
+        print(f"🚀 Start scraping voor: {stad}")
         payload = {
             "city": stad,
             "maxPrice": 2000000,
@@ -48,7 +47,7 @@ def run_scraper():
             "propertyTypes": ["Woonhuis", "Appartement"],
             "maxResults": 100,
             "radiusKm": 5,
-            "minPublishDate": zeven_dagen_geleden,
+            "minPublishDate": vandaag,
         }
 
         response = requests.post(
@@ -58,31 +57,36 @@ def run_scraper():
         )
 
         if response.status_code != 201:
+            print(f"❌ Error bij starten van scraper voor {stad}: {response.text}")
             return jsonify({
                 "error": f"❌ Scraper mislukt voor {stad}",
                 "details": response.text,
             }), 500
 
-        run_data = response.json()["data"]
-        dataset_id = run_data["defaultDatasetId"]
-        dataset_url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?clean=true&format=json"
+        run_data = response.json().get("data")
+        dataset_id = run_data.get("defaultDatasetId") if run_data else None
+        if not dataset_id:
+            print(f"⚠️ Geen dataset ID ontvangen voor {stad}. Volledige response: {run_data}")
+            continue
 
+        dataset_url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?clean=true&format=json"
         woningen = []
+
         for attempt in range(5):
             try:
-                print(f"⏳ Poging {attempt + 1} om dataset op te halen voor {stad}...")
+                print(f"🔄 Poging {attempt + 1} om dataset op te halen voor {stad}...")
                 response = requests.get(dataset_url)
                 woningen = response.json()
+                print(f"📦 Ontvangen woningen voor {stad}: {len(woningen)} items")
                 if woningen:
                     break
-                time.sleep(10)  # ⏱ langere wachttijd
+                time.sleep(10)
             except Exception as e:
                 print(f"⚠️ Fout bij ophalen dataset: {e}")
                 time.sleep(10)
 
-        print(f"📦 Ontvangen woningen voor {stad}: {len(woningen)} items")
-
         unieke_woningen = []
+
         for item in woningen:
             s = item.get("search_item", {}).get("_source", {})
             address = s.get("address", {})
@@ -114,6 +118,7 @@ def run_scraper():
             try:
                 supabase.table("woningen").upsert(unieke_woningen, on_conflict="externalId").execute()
             except Exception as e:
+                print(f"❌ Fout bij opslaan in Supabase: {e}")
                 return jsonify({"error": f"❌ Fout bij opslaan in Supabase: {str(e)}"}), 500
 
         all_runs.append({"stad": stad, "totaal": len(unieke_woningen)})
