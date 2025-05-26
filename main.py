@@ -4,14 +4,21 @@ import time
 
 app = Flask(__name__)
 
-APIFY_TOKEN = "apify_api_g9OHpMq0fIMJZaRlPRR0Scrs8VzCZ3EkLC"  # jouw echte token
-ACTOR_ID = "djeckxson~funda-task"  # actor-id uit je screenshot
+# ✅ Correcte Apify-token zonder prefix
+APIFY_TOKEN = "g9OHpMq0fIMJZaRlPRR0Scrs8VzCZ3EkLC"
+ACTOR_ID = "djeckxson~funda-task"
 
 def run_apify_actor(stad):
     url = f"https://api.apify.com/v2/actor-tasks/{ACTOR_ID}/runs?token={APIFY_TOKEN}"
     payload = {
-        "startUrls": [f"https://www.funda.nl/koop/{stad.lower()}/"],
-        "maxItems": 20,
+        "token": APIFY_TOKEN,
+        "memory": 2048,
+        "timeoutSecs": 1200,
+        "build": "latest",
+        "input": {
+            "stad": stad,
+            "maxItems": 20
+        }
     }
 
     print("📡 Start Apify actor...")
@@ -21,36 +28,33 @@ def run_apify_actor(stad):
     if not run_id:
         return None, []
 
-    # Wachten op voltooiing
-    for _ in range(30):  # maximaal 30 seconden
-        status_res = requests.get(
-            f"https://api.apify.com/v2/actor-runs/{run_id}?token={APIFY_TOKEN}"
-        )
-        status_res.raise_for_status()
-        status = status_res.json().get("data", {}).get("status")
+    # 🕒 Wachten tot de actor klaar is
+    for _ in range(30):
+        run_status_url = f"https://api.apify.com/v2/actor-runs/{run_id}?token={APIFY_TOKEN}"
+        run_status_res = requests.get(run_status_url)
+        run_status_res.raise_for_status()
+        status = run_status_res.json().get("data", {}).get("status")
         if status == "SUCCEEDED":
-            print("✅ Apify-run succesvol afgerond.")
             break
-        elif status in ["FAILED", "ABORTED", "TIMED-OUT"]:
-            print(f"❌ Apify-run gefaald met status: {status}")
-            return status, []
-        time.sleep(1)
+        time.sleep(2)
     else:
-        print("⏳ Timeout: Apify-run duurde te lang.")
-        return "TIMEOUT", []
+        return None, []
 
-    # Data ophalen
-    dataset_id = status_res.json().get("data", {}).get("defaultDatasetId")
-    dataset_url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?token={APIFY_TOKEN}&clean=true"
-    dataset_res = requests.get(dataset_url)
-    dataset_res.raise_for_status()
-    woningen = dataset_res.json()
+    # 📥 Ophalen van resultaat
+    items_url = f"https://api.apify.com/v2/datasets/{run_id}/items?token={APIFY_TOKEN}&clean=true&format=json"
+    items_res = requests.get(items_url)
+    items_res.raise_for_status()
+    woningen = items_res.json()
 
-    return "SUCCEEDED", woningen
+    return "✅ Flip-woningen succesvol verwerkt", woningen
+
+@app.route("/")
+def index():
+    return "🏠 Woning scraper is live."
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.get_json()
+    data = request.json
     steden = data.get("steden", [])
     runs = []
     totaal = 0
@@ -65,10 +69,10 @@ def webhook():
         totaal += len(woningen)
 
     return jsonify({
-        "status": "Flip-woningen succesvol verwerkt",
-        "totaal": totaal,
-        "runs": runs
+        "runs": runs,
+        "status": "✅ Flip-woningen succesvol verwerkt",
+        "totaal": totaal
     })
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=10000)
+    app.run(host="0.0.0.0", port=10000, debug=False)
