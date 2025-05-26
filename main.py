@@ -70,18 +70,19 @@ def run_scraper():
         woningen = []
         for attempt in range(5):
             try:
-                print(f"🔄 Poging {attempt + 1} om dataset op te halen voor {stad}...")
+                print(f"🔄 Poging {attempt + 1} om dataset op te halen voor {stad}...", flush=True)
                 response = requests.get(dataset_url)
                 woningen = response.json()
 
-                # 👇 Altijd loggen wat er terugkomt
-                print(f"📦 Ontvangen woningen voor {stad}: {len(woningen)} items")
+                # ✅ Altijd loggen wat we ontvangen
+                print(f"📦 Ontvangen woningen voor {stad}: {len(woningen)} items", flush=True)
+
                 if woningen:
                     break
 
                 time.sleep(5)
             except Exception as e:
-                print(f"⚠️ Fout bij ophalen dataset: {e}")
+                print(f"⚠️ Fout bij ophalen dataset: {e}", flush=True)
                 time.sleep(5)
 
         unieke_woningen = []
