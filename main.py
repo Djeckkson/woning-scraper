@@ -4,51 +4,47 @@ import time
 
 app = Flask(__name__)
 
-API_KEY = "Maluku123"
-
 @app.route("/")
 def home():
-    return "🏠 Flip-scraper API is live!"
+    return "🏡 Woning scraper draait!"
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    # 🔒 API-key check
-    if request.headers.get("x-api-key") != API_KEY:
-        return jsonify({"error": "Unauthorized"}), 401
-
     data = request.get_json()
-    if not data or "steden" not in data:
-        return jsonify({"error": "Missing 'steden' in request"}), 400
-
-    steden = data["steden"]
+    steden = data.get("steden", [])
+    
+    print(f"📨 Ontvangen POST-verzoek voor steden: {steden}")
+    
     resultaten = []
     totaal = 0
 
     for stad in steden:
-        print(f"\n🚀 Start scraping voor stad: {stad}")
-        pogingen = 0
+        print(f"🔍 Start scraping voor: {stad}")
+        
         woningen = []
-
+        pogingen = 0
         while pogingen < 5 and not woningen:
-            print(f"🔄 Poging {pogingen + 1} om data op te halen voor {stad}...")
-            woningen = scrape_flip_woningen(stad, dagen=7)  # 👈 7 dagen filter
-            print(f"📦 Ontvangen woningen voor {stad}: {len(woningen)} items")
-            time.sleep(2)  # iets langere pauze
+            print(f"⏱️ Poging {pogingen+1} om data op te halen voor {stad}...")
+            woningen = scrape_flip_woningen(stad, dagen=7)
+            if woningen:
+                break
             pogingen += 1
+            time.sleep(3)  # Wacht 3 seconden tussen pogingen
 
+        print(f"📦 Ontvangen woningen voor {stad}: {len(woningen)} items")
         resultaten.append({
             "stad": stad,
             "totaal": len(woningen)
         })
         totaal += len(woningen)
 
-    print(f"\n✅ Scrape afgerond voor {len(steden)} steden. Totaal gevonden: {totaal} woningen.")
-
-    return jsonify({
+    response = {
         "runs": resultaten,
         "status": "✅ Flip-woningen succesvol verwerkt",
         "totaal": totaal
-    })
+    }
+
+    return jsonify(response)
 
 if __name__ == "__main__":
-    app.run(debug=False, host="0.0.0.0", port=10000)
+    app.run(debug=False, port=10000, host="0.0.0.0")
