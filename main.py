@@ -1,50 +1,74 @@
-from flask import Flask, request, jsonify
-from scraper import scrape_flip_woningen
+import requests
 import time
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-@app.route("/")
-def home():
-    return "🏡 Woning scraper draait!"
+# ✅ Jouw vaste Apify gegevens
+APIFY_TOKEN = "apify_api_bBAe9vPd4r9NnhxHtRXkquKjxfGx2A0cHt"  # Dit is jouw werkende token
+SCRAPER_ACTOR_ID = "bA9PazxMRX4aN5F1m"  # Dit is je actor task ID
 
-@app.route("/webhook", methods=["POST"])
+def start_apify_scraper(stad):
+    print(f"▶️ Start Apify scraper voor: {stad}")
+    url = f"https://api.apify.com/v2/actor-tasks/{SCRAPER_ACTOR_ID}/runs?token={APIFY_TOKEN}"
+
+    # Input data naar je scraper zoals je die eerder had ingesteld
+    payload = {
+        "city": stad,
+        "maxPrice": 2000000,
+        "offerTypes": ["Koop"],
+        "propertyTypes": ["Woonhuis", "Appartement"],
+        "maxResults": 100,
+        "radiusKm": 5
+    }
+
+    # Start scraper run
+    run_response = requests.post(url, json=payload)
+    if run_response.status_code != 201:
+        print(f"❌ Scraper start fout voor {stad}: {run_response.text}")
+        return []
+
+    run_data = run_response.json()["data"]
+    dataset_id = run_data["defaultDatasetId"]
+
+    # Wacht en probeer resultaten op te halen
+    dataset_url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?clean=true&format=json"
+    woningen = []
+    for attempt in range(10):
+        print(f"⌛️ Poging {attempt + 1} om data op te halen...")
+        res = requests.get(dataset_url)
+        try:
+            woningen = res.json()
+            if woningen:
+                break
+        except Exception:
+            pass
+        time.sleep(6)
+
+    print(f"📦 Ontvangen woningen voor {stad}: {len(woningen)} items")
+    return woningen
+
+@app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.get_json()
     steden = data.get("steden", [])
-    
-    print(f"📨 Ontvangen POST-verzoek voor steden: {steden}")
-    
+
     resultaten = []
     totaal = 0
 
     for stad in steden:
-        print(f"🔍 Start scraping voor: {stad}")
-        
-        woningen = []
-        pogingen = 0
-        while pogingen < 5 and not woningen:
-            print(f"⏱️ Poging {pogingen+1} om data op te halen voor {stad}...")
-            woningen = scrape_flip_woningen(stad, dagen=7)
-            if woningen:
-                break
-            pogingen += 1
-            time.sleep(3)  # Wacht 3 seconden tussen pogingen
-
-        print(f"📦 Ontvangen woningen voor {stad}: {len(woningen)} items")
+        woningen = start_apify_scraper(stad)
         resultaten.append({
             "stad": stad,
             "totaal": len(woningen)
         })
         totaal += len(woningen)
 
-    response = {
+    return jsonify({
         "runs": resultaten,
         "status": "✅ Flip-woningen succesvol verwerkt",
         "totaal": totaal
-    }
+    })
 
-    return jsonify(response)
-
-if __name__ == "__main__":
-    app.run(debug=False, port=10000, host="0.0.0.0")
+if __name__ == '__main__':
+    app.run(debug=False, host='0.0.0.0', port=10000)
