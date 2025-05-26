@@ -38,11 +38,9 @@ def run_scraper():
 
     all_runs = []
     vandaag = datetime.today().strftime("%Y-%m-%d")
-    zeven_dagen_terug = (datetime.today() - timedelta(days=7)).strftime("%Y-%m-%d")
+    zeven_dagen_geleden = (datetime.today() - timedelta(days=7)).strftime("%Y-%m-%d")
 
     for stad in steden:
-        print(f"🚀 Start scraper voor {stad}...")
-
         payload = {
             "city": stad,
             "maxPrice": 2000000,
@@ -50,7 +48,7 @@ def run_scraper():
             "propertyTypes": ["Woonhuis", "Appartement"],
             "maxResults": 100,
             "radiusKm": 5,
-            "minPublishDate": zeven_dagen_terug,
+            "minPublishDate": zeven_dagen_geleden,
         }
 
         response = requests.post(
@@ -71,18 +69,17 @@ def run_scraper():
 
         woningen = []
         for attempt in range(5):
-            print(f"⏳ Poging {attempt + 1} om dataset op te halen voor {stad}...")
             try:
+                print(f"🔄 Poging {attempt + 1} om dataset op te halen voor {stad}...")
                 response = requests.get(dataset_url)
                 woningen = response.json()
+                print(f"📦 Ontvangen woningen voor {stad}: {len(woningen)} items")
                 if woningen:
                     break
-                time.sleep(8)
+                time.sleep(10)
             except Exception as e:
                 print(f"⚠️ Fout bij ophalen dataset: {e}")
-                time.sleep(8)
-
-        print(f"📦 Ontvangen woningen voor {stad}: {len(woningen)} items")
+                time.sleep(10)
 
         unieke_woningen = []
 
