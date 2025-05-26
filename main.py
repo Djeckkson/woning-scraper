@@ -38,9 +38,11 @@ def run_scraper():
 
     all_runs = []
     vandaag = datetime.today().strftime("%Y-%m-%d")
-    zeven_dagen_terug = (datetime.today() - timedelta(days=7)).strftime("%Y-%m-%d")
+    zeven_dagen_geleden = (datetime.today() - timedelta(days=7)).strftime("%Y-%m-%d")
 
     for stad in steden:
+        print(f"🚀 Start scraping voor: {stad} | Vanaf: {zeven_dagen_geleden}")
+
         payload = {
             "city": stad,
             "maxPrice": 2000000,
@@ -48,10 +50,8 @@ def run_scraper():
             "propertyTypes": ["Woonhuis", "Appartement"],
             "maxResults": 100,
             "radiusKm": 5,
-            "minPublishDate": zeven_dagen_terug,
+            "minPublishDate": zeven_dagen_geleden,
         }
-
-        print(f"🚀 Start scraping voor: {stad} | Vanaf: {zeven_dagen_terug}")
 
         response = requests.post(
             f"https://api.apify.com/v2/actor-tasks/{ACTOR_ID}/runs?token={APIFY_TOKEN}",
@@ -60,8 +60,10 @@ def run_scraper():
         )
 
         if response.status_code != 201:
-            print(f"❌ Scraper mislukt voor {stad}: {response.text}")
-            return jsonify({"error": f"❌ Scraper mislukt voor {stad}", "details": response.text}), 500
+            return jsonify({
+                "error": f"❌ Scraper mislukt voor {stad}",
+                "details": response.text,
+            }), 500
 
         run_data = response.json()["data"]
         dataset_id = run_data["defaultDatasetId"]
@@ -69,17 +71,17 @@ def run_scraper():
 
         woningen = []
         for attempt in range(5):
+            print(f"⏳ Poging {attempt + 1} om dataset op te halen voor {stad}...")
             try:
-                print(f"⏳ Poging {attempt + 1} om dataset op te halen voor {stad}...")
-                time.sleep(10)  # langere wachttijd
                 response = requests.get(dataset_url)
                 woningen = response.json()
                 print(f"📦 Ontvangen woningen voor {stad}: {len(woningen)} items")
                 if woningen:
                     break
+                time.sleep(10)
             except Exception as e:
-                print(f"⚠️ Fout bij ophalen dataset voor {stad}: {e}")
-                time.sleep(5)
+                print(f"⚠️ Fout bij ophalen dataset: {e}")
+                time.sleep(10)
 
         unieke_woningen = []
 
@@ -113,8 +115,9 @@ def run_scraper():
         if unieke_woningen:
             try:
                 supabase.table("woningen").upsert(unieke_woningen, on_conflict="externalId").execute()
+                print(f"✅ {len(unieke_woningen)} woningen opgeslagen in Supabase voor {stad}")
             except Exception as e:
-                print(f"❌ Fout bij Supabase insert: {str(e)}")
+                print(f"❌ Fout bij opslaan in Supabase voor {stad}: {e}")
                 return jsonify({"error": f"❌ Fout bij opslaan in Supabase: {str(e)}"}), 500
 
         all_runs.append({"stad": stad, "totaal": len(unieke_woningen)})
