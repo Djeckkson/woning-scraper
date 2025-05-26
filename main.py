@@ -38,9 +38,11 @@ def run_scraper():
 
     all_runs = []
     vandaag = datetime.today().strftime("%Y-%m-%d")
-    drie_dagen_geleden = (datetime.today() - timedelta(days=3)).strftime("%Y-%m-%d")
+    zeven_dagen_geleden = (datetime.today() - timedelta(days=7)).strftime("%Y-%m-%d")
 
     for stad in steden:
+        print(f"🚀 Scraper gestart voor {stad}. Dit kan even duren...")
+
         payload = {
             "city": stad,
             "maxPrice": 2000000,
@@ -48,7 +50,7 @@ def run_scraper():
             "propertyTypes": ["Woonhuis", "Appartement"],
             "maxResults": 100,
             "radiusKm": 5,
-            "minPublishDate": drie_dagen_geleden,
+            "minPublishDate": zeven_dagen_geleden,
         }
 
         response = requests.post(
@@ -68,22 +70,18 @@ def run_scraper():
         dataset_url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?clean=true&format=json"
 
         woningen = []
-        for attempt in range(5):
+        for attempt in range(8):
             try:
-                print(f"🔄 Poging {attempt + 1} om dataset op te halen voor {stad}...", flush=True)
+                print(f"🔁 Poging {attempt + 1} om dataset op te halen voor {stad}...")
                 response = requests.get(dataset_url)
                 woningen = response.json()
-
-                # ✅ Altijd loggen wat we ontvangen
-                print(f"📦 Ontvangen woningen voor {stad}: {len(woningen)} items", flush=True)
-
+                print(f"📦 Ontvangen woningen voor {stad}: {len(woningen)} items")
                 if woningen:
                     break
-
-                time.sleep(5)
+                time.sleep(8)
             except Exception as e:
-                print(f"⚠️ Fout bij ophalen dataset: {e}", flush=True)
-                time.sleep(5)
+                print(f"⚠️ Fout bij ophalen dataset: {e}")
+                time.sleep(8)
 
         unieke_woningen = []
 
