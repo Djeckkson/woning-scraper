@@ -41,8 +41,6 @@ def run_scraper():
     zeven_dagen_geleden = (datetime.today() - timedelta(days=7)).strftime("%Y-%m-%d")
 
     for stad in steden:
-        print(f"🚀 Start scraping voor: {stad} | Vanaf: {zeven_dagen_geleden}")
-
         payload = {
             "city": stad,
             "maxPrice": 2000000,
@@ -71,20 +69,20 @@ def run_scraper():
 
         woningen = []
         for attempt in range(5):
-            print(f"⏳ Poging {attempt + 1} om dataset op te halen voor {stad}...")
             try:
+                print(f"⏳ Poging {attempt + 1} om dataset op te halen voor {stad}...")
                 response = requests.get(dataset_url)
                 woningen = response.json()
-                print(f"📦 Ontvangen woningen voor {stad}: {len(woningen)} items")
                 if woningen:
                     break
-                time.sleep(10)
+                time.sleep(10)  # ⏱ langere wachttijd
             except Exception as e:
                 print(f"⚠️ Fout bij ophalen dataset: {e}")
                 time.sleep(10)
 
-        unieke_woningen = []
+        print(f"📦 Ontvangen woningen voor {stad}: {len(woningen)} items")
 
+        unieke_woningen = []
         for item in woningen:
             s = item.get("search_item", {}).get("_source", {})
             address = s.get("address", {})
@@ -115,9 +113,7 @@ def run_scraper():
         if unieke_woningen:
             try:
                 supabase.table("woningen").upsert(unieke_woningen, on_conflict="externalId").execute()
-                print(f"✅ {len(unieke_woningen)} woningen opgeslagen in Supabase voor {stad}")
             except Exception as e:
-                print(f"❌ Fout bij opslaan in Supabase voor {stad}: {e}")
                 return jsonify({"error": f"❌ Fout bij opslaan in Supabase: {str(e)}"}), 500
 
         all_runs.append({"stad": stad, "totaal": len(unieke_woningen)})
