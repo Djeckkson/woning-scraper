@@ -1,50 +1,43 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-from supabase import create_client
-import requests
+
 import os
+import json
+import requests
+from flask import Flask, request, jsonify
+from supabase import create_client, Client
 
 app = Flask(__name__)
-CORS(app)
 
-# Haal Supabase credentials uit environment
+# Haal Supabase config uit environment
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# Apify credentials en endpoint
 APIFY_TOKEN = os.getenv("APIFY_API_TOKEN")
 ACTOR_ID = os.getenv("APIFY_ACTOR_ID")
+APIFY_URL = f"https://api.apify.com/v2/acts/{ACTOR_ID}/runs?token={APIFY_TOKEN}"
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
     steden = data.get("steden", [])
 
-    if not steden:
-        return jsonify({"status": "Fout", "bericht": "Geen steden opgegeven"}), 400
-
     resultaten = []
+    totaal_woningen = 0
 
     for stad in steden:
-        run_input = {
+        input_config = {
             "city": stad,
             "maxPrice": 1000000,
             "maxResults": 100,
             "minPublishDate": "2025-05-20",
             "offerTypes": ["Koop"],
             "propertyTypes": ["Woonhuis", "Appartement"],
-            "radiusKm": 10,
-            "proxy": {
-                "useApifyProxy": True,
-                "apifyProxyGroups": ["RESIDENTIAL"]
-            }
+            "radiusKm": 10
         }
 
-        run_url = f"https://api.apify.com/v2/acts/{ACTOR_ID}/runs?token={APIFY_TOKEN}"
-        run_response = requests.post(run_url, json=run_input).json()
-        run_id = run_response.get("data", {}).get("id")
-
-        if not run_id:
+        run_response = requests.post(APIFY_URL, json={"input": input_config})
+        if run_response.status_code != 201:
             resultaten.append({
                 "stad": stad,
                 "status": "Mislukt",
@@ -53,15 +46,18 @@ def webhook():
             })
             continue
 
-        dataset_url = f"https://api.apify.com/v2/actor-runs/{run_id}/dataset/items?token={APIFY_TOKEN}&clean=true"
-        woningen = []
-        for _ in range(40):  # maximaal 40 seconden wachten
-            r = requests.get(dataset_url)
-            if r.status_code == 200 and r.json():
-                woningen = r.json()
-                break
-            import time
-            time.sleep(1)
+        run_id = run_response.json()["data"]["id"]
+
+        # Wacht op scraping result
+        dataset_url = f"https://api.apify.com/v2/datasets/{run_id}/items?clean=true"
+        woningen_response = requests.get(dataset_url)
+        woningen = woningen_response.json() if woningen_response.ok else []
+
+        totaal_woningen += len(woningen)
+
+        # Voeg toe aan Supabase
+        for woning in woningen:
+            supabase.table("woningen").insert(woning).execute()
 
         resultaten.append({
             "stad": stad,
@@ -70,15 +66,11 @@ def webhook():
             "totaal": len(woningen)
         })
 
-        # Opslaan in Supabase
-        for woning in woningen:
-            supabase.table("woningen").insert(woning).execute()
-
     return jsonify({
-        "status": "Woningdata opgehaald",
         "runs": resultaten,
-        "totaal": sum(len(r["woningen"]) for r in resultaten)
+        "status": "Woningdata opgehaald",
+        "totaal": totaal_woningen
     })
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000)
+    app.run(debug=True, host="0.0.0.0", port=10000)
