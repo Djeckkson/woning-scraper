@@ -1,7 +1,7 @@
-supabase
-pandas
 flask
 requests
+supabase
+pandas
 flask-cors
 beautifulsoup4
 lxml
