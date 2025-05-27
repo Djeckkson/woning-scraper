@@ -4,22 +4,22 @@ import time
 
 app = Flask(__name__)
 
-# 🔐 Apify API gegevens
-APIFY_TOKEN = "apify_api_g9OHpMq0fIMJZaRlPRR0Scrs8VzCZ3EkLC"
-ACTOR_TASK_ID = "djeckxson~funda-task"
+# 🔐 Apify-instellingen
+APIFY_TOKEN = "apify_api_gg0HpMq0fiMJZaRIPRR0Scrs8VzCZe3JEkLC"
+ACTOR_ID = "memo23~apify-funda-cheerio-kvstore"
 
-# 🚀 Functie om Apify actor te starten
+# 🚀 Functie om een Apify actor run te starten en resultaten op te halen
 def run_apify_actor(stad):
     print(f"📡 Start Apify actor voor stad: {stad}")
     
-    url = f"https://api.apify.com/v2/acts/{ACTOR_TASK_ID}/runs"
+    url = f"https://api.apify.com/v2/acts/{ACTOR_ID}/runs"
     payload = {
-        "memory": 1024,
-        "timeoutSecs": 300,
+        "memory": 2048,
+        "timeoutSecs": 3600,
         "build": "latest",
         "input": {
-            "stad": stad,
-            "maxItems": 20
+            "city": stad,
+            "maxResults": 20
         }
     }
 
@@ -28,11 +28,17 @@ def run_apify_actor(stad):
         "X-Api-Key": APIFY_TOKEN
     }
 
-    res = requests.post(url, json=payload, headers=headers)
-    res.raise_for_status()
-    run_id = res.json()["data"]["id"]
+    try:
+        res = requests.post(url, json=payload, headers=headers)
+        res.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        print(f"❌ Fout bij starten actor: {e}")
+        return "Mislukt", []
 
-    # ⏳ Wachten op run-status
+    run_id = res.json()["data"]["id"]
+    print(f"▶️ Run gestart: {run_id}")
+
+    # ⏳ Pollen tot klaar
     status = "RUNNING"
     while status in ["RUNNING", "READY"]:
         time.sleep(5)
@@ -45,25 +51,28 @@ def run_apify_actor(stad):
     if status != "SUCCEEDED":
         return "Mislukt", []
 
-    # 📦 Resultaten ophalen
+    # 📦 Ophalen van resultaten
     dataset_id = check_res.json()["data"]["defaultDatasetId"]
     items_url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?format=json"
     items_res = requests.get(items_url, headers=headers)
     items_res.raise_for_status()
     items = items_res.json()
-    print(f"✅ {len(items)} resultaten opgehaald")
+    print(f"✅ {len(items)} resultaten opgehaald voor {stad}")
     return "Gelukt", items
 
-# 🌐 Index route
+# 🌐 Statuspagina
 @app.route("/")
 def index():
-    return "Woning scraper draait ✅"
+    return "🏠 Woning scraper draait ✅"
 
 # 📬 Webhook endpoint
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
     steden = data.get("steden", [])
+    if not steden or not isinstance(steden, list):
+        return jsonify({"error": "Verwacht JSON met 'steden': [..]"}), 400
+
     runs = []
     totaal = 0
 
@@ -71,15 +80,16 @@ def webhook():
         status, woningen = run_apify_actor(stad)
         runs.append({
             "stad": stad,
+            "status": status,
             "totaal": len(woningen),
             "woningen": woningen
         })
         totaal += len(woningen)
 
     return jsonify({
-        "runs": runs,
-        "status": "Flip-woningen succesvol verwerkt",
-        "totaal": totaal
+        "status": "Woningdata opgehaald",
+        "totaal": totaal,
+        "runs": runs
     })
 
 # 🚀 App starten
