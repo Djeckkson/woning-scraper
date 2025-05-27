@@ -10,7 +10,7 @@ ACTOR_ID = "memo23~apify-funda-cheerio-kvstore"
 
 def run_apify_actor(stad):
     print(f"📡 Start Apify actor voor stad: {stad}")
-    
+
     today = date.today()
     three_days_ago = today - timedelta(days=3)
 
@@ -20,12 +20,16 @@ def run_apify_actor(stad):
         "build": "latest",
         "input": {
             "city": stad,
-            "maxPrice": 200000,
+            "maxPrice": 500000,
             "maxResults": 100,
             "minPublishDate": three_days_ago.isoformat(),
             "offerTypes": ["Koop"],
             "propertyTypes": ["Woonhuis", "Appartement"],
-            "radiusKm": 5
+            "radiusKm": 10,
+            "proxyConfig": {
+                "useApifyProxy": True
+            },
+            "maxConcurrency": 10
         }
     }
 
@@ -36,20 +40,24 @@ def run_apify_actor(stad):
 
     res = requests.post(f"https://api.apify.com/v2/acts/{ACTOR_ID}/runs", json=payload, headers=headers)
     if res.status_code != 201:
-        print(f"❌ Fout bij starten actor-run ({res.status_code}): {res.text}")
+        print(f"❌ Kon actor niet starten. Status: {res.status_code}")
+        print(f"Response: {res.text}")
         return "Mislukt", []
 
     run_id = res.json()["data"]["id"]
-    print(f"▶️ Run ID: {run_id}")
+    print(f"▶️ Actor gestart met ID: {run_id}")
 
+    # Pollen tot klaar
     status = "RUNNING"
     while status in ["RUNNING", "READY"]:
         time.sleep(5)
         status_res = requests.get(f"https://api.apify.com/v2/actor-runs/{run_id}", headers=headers)
+        status_res.raise_for_status()
         status = status_res.json()["data"]["status"]
         print(f"⌛ Status: {status}")
 
     if status != "SUCCEEDED":
+        print(f"❌ Run mislukt met status: {status}")
         return "Mislukt", []
 
     dataset_id = status_res.json()["data"]["defaultDatasetId"]
@@ -61,7 +69,7 @@ def run_apify_actor(stad):
 
 @app.route("/")
 def index():
-    return "🏠 Woning scraper draait ✅"
+    return "🏠 Scraper draait ✅"
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -84,7 +92,7 @@ def webhook():
         totaal += len(woningen)
 
     return jsonify({
-        "status": "Woningdata opgehaald",
+        "status": "Woningen succesvol opgehaald",
         "totaal": totaal,
         "runs": runs
     })
