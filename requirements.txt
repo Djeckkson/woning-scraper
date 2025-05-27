@@ -1,7 +1,5 @@
 flask
+flask-cors
 requests
 supabase
 pandas
-flask-cors
-beautifulsoup4
-lxml
