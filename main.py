@@ -20,16 +20,19 @@ def run_apify_actor(stad):
         "build": "latest",
         "input": {
             "city": stad,
-            "maxPrice": 500000,
+            "maxPrice": 300000,
             "maxResults": 100,
             "minPublishDate": three_days_ago.isoformat(),
             "offerTypes": ["Koop"],
             "propertyTypes": ["Woonhuis", "Appartement"],
             "radiusKm": 10,
-            "proxyConfig": {
-                "useApifyProxy": True
-            },
-            "maxConcurrency": 10
+            "maxConcurrency": 10,
+            "minConcurrency": 1,
+            "maxRequestRetries": 100,
+            "proxy": {
+                "useApifyProxy": True,
+                "apifyProxyGroups": ["RESIDENTIAL"]
+            }
         }
     }
 
@@ -47,7 +50,6 @@ def run_apify_actor(stad):
     run_id = res.json()["data"]["id"]
     print(f"▶️ Actor gestart met ID: {run_id}")
 
-    # Pollen tot klaar
     status = "RUNNING"
     while status in ["RUNNING", "READY"]:
         time.sleep(5)
